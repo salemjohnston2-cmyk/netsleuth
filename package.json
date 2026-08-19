@@ -1,0 +1,14 @@
+{
+  "name": "netsleuth",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "build:core": "npm run build --workspace=@netsleuth/core",
+    "build:backend": "npm run build --workspace=@netsleuth/backend",
+    "start:backend": "npm run start --workspace=@netsleuth/backend"
+  },
+  "workspaces": [
+    "packages/*",
+    "apps/saas/*"
+  ]
+}
