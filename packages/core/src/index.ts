@@ -32,7 +32,6 @@ export interface ScanResult {
   findings: Finding[];
 }
 
-// ─── UTILITIES ───────────────────────────────────────────────
 async function safeFetch(url: string, options: RequestInit = {}, timeoutMs = 8000): Promise<Response> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -46,7 +45,6 @@ async function safeFetch(url: string, options: RequestInit = {}, timeoutMs = 800
   }
 }
 
-// ─── MODULE 1: DNS ───────────────────────────────────────────
 export async function scanDns(domain: string): Promise<ModuleResult> {
   const start = Date.now();
   const findings: Finding[] = [];
@@ -66,7 +64,6 @@ export async function scanDns(domain: string): Promise<ModuleResult> {
   }
 }
 
-// ─── MODULE 2: IP ────────────────────────────────────────────
 export async function scanIp(domain: string): Promise<ModuleResult> {
   const start = Date.now();
   const findings: Finding[] = [];
@@ -83,7 +80,6 @@ export async function scanIp(domain: string): Promise<ModuleResult> {
   }
 }
 
-// ─── MODULE 3: HEADERS ───────────────────────────────────────
 export async function scanHeaders(domain: string): Promise<ModuleResult> {
   const start = Date.now();
   const findings: Finding[] = [];
@@ -108,7 +104,6 @@ export async function scanHeaders(domain: string): Promise<ModuleResult> {
   }
 }
 
-// ─── MODULE 4: SSL ───────────────────────────────────────────
 export async function scanSsl(domain: string): Promise<ModuleResult> {
   const start = Date.now();
   const findings: Finding[] = [];
@@ -126,7 +121,6 @@ export async function scanSsl(domain: string): Promise<ModuleResult> {
   });
 }
 
-// ─── MODULE 5: TECH STACK ────────────────────────────────────
 export async function scanTechStack(domain: string): Promise<ModuleResult> {
   const start = Date.now();
   const findings: Finding[] = [];
@@ -147,7 +141,6 @@ export async function scanTechStack(domain: string): Promise<ModuleResult> {
   }
 }
 
-// ─── RUNNER ──────────────────────────────────────────────────
 export async function runScan(domain: string): Promise<ScanResult> {
   const start = Date.now();
   const modules: Record<string, ModuleResult> = {};
