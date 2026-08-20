@@ -1,4 +1,5 @@
 import * as tls from 'tls';
+import * as net from 'net';
 
 export const NETSLEUTH_VERSION = '1.0.0';
 
@@ -157,3 +158,112 @@ export async function runScan(domain: string): Promise<ScanResult> {
 }
 
 export function greet(): string { return 'NetSleuth Core Engine Initialized'; }
+
+// ─── MODULE 6: WHOIS ─────────────────────────────────────────
+export async function scanWhois(domain: string): Promise<ModuleResult> {
+  const start = Date.now();
+  const findings: Finding[] = [];
+  try {
+    const res = await safeFetch(`https://rdap.org/domain/${domain}`);
+    const d = await res.json();
+    const event = (action: string) => d.events?.find((e: any) => e.eventAction === action)?.eventDate || null;
+    return { module: 'whois', status: 'completed', started_at: new Date(start).toISOString(), completed_at: new Date().toISOString(), duration_ms: Date.now() - start, data: { registrar: d.entities?.find((e: any) => e.roles?.includes('registrar'))?.vcardArray?.[1]?.find((v: any) => v[0] === 'fn')?.[3] || null, created: event('registration'), expires: event('expiration') }, findings };
+  } catch (err: any) {
+    return { module: 'whois', status: 'failed', started_at: new Date(start).toISOString(), completed_at: new Date().toISOString(), duration_ms: Date.now() - start, data: null, findings, error: { code: 'NETWORK_ERROR', message: err.message } };
+  }
+}
+
+// ─── MODULE 7: SUBDOMAINS ────────────────────────────────────
+export async function scanSubdomains(domain: string): Promise<ModuleResult> {
+  const start = Date.now();
+  const findings: Finding[] = [];
+  try {
+    const res = await safeFetch(`https://crt.sh/?q=%.${domain}&output=json`, {}, 12000);
+    const data = await res.json();
+    const subs = [...new Set(data.flatMap((c: any) => c.name_value.split('\n')).map((s: string) => s.toLowerCase().trim()).filter((s: string) => s.endsWith(`.${domain}`) && !s.includes('*')))].sort();
+    return { module: 'subdomains', status: 'completed', started_at: new Date(start).toISOString(), completed_at: new Date().toISOString(), duration_ms: Date.now() - start, data: { count: subs.length, subdomains: subs.slice(0, 50) }, findings };
+  } catch (err: any) {
+    return { module: 'subdomains', status: 'failed', started_at: new Date(start).toISOString(), completed_at: new Date().toISOString(), duration_ms: Date.now() - start, data: null, findings, error: { code: 'NETWORK_ERROR', message: err.message } };
+  }
+}
+
+// ─── MODULE 8: PORT SCAN ─────────────────────────────────────
+export async function scanPortscan(domain: string): Promise<ModuleResult> {
+  const start = Date.now();
+  const findings: Finding[] = [];
+  const ports = [21, 22, 25, 80, 443, 3306, 5432, 6379, 8080, 27017];
+  const checkPort = (port: number) => new Promise<{port: number, open: boolean}>((resolve) => {
+    const socket = new net.Socket();
+    socket.setTimeout(2000);
+    socket.on('connect', () => { socket.destroy(); resolve({ port, open: true }); });
+    socket.on('timeout', () => { socket.destroy(); resolve({ port, open: false }); });
+    socket.on('error', () => { socket.destroy(); resolve({ port, open: false }); });
+    socket.connect(port, domain);
+  });
+
+  try {
+    const results = await Promise.all(ports.map(checkPort));
+    const openPorts = results.filter(r => r.open).map(r => r.port);
+    if (openPorts.includes(3306) || openPorts.includes(5432) || openPorts.includes(6379) || openPorts.includes(27017)) {
+      findings.push({ severity: 'critical', title: 'Database Port Exposed', description: 'A database port is open to the public internet.', evidence: { open_ports: openPorts } });
+    }
+    return { module: 'portscan', status: 'completed', started_at: new Date(start).toISOString(), completed_at: new Date().toISOString(), duration_ms: Date.now() - start, data: { scanned: ports.length, open: openPorts }, findings };
+  } catch (err: any) {
+    return { module: 'portscan', status: 'failed', started_at: new Date(start).toISOString(), completed_at: new Date().toISOString(), duration_ms: Date.now() - start, data: null, findings, error: { code: 'NETWORK_ERROR', message: err.message } };
+  }
+}
+
+// ─── MODULE 9: CORS ──────────────────────────────────────────
+export async function scanCors(domain: string): Promise<ModuleResult> {
+  const start = Date.now();
+  const findings: Finding[] = [];
+  try {
+    const res = await safeFetch(`https://${domain}`, { headers: { 'Origin': 'https://evil.com' } });
+    const acao = res.headers.get('access-control-allow-origin');
+    const acac = res.headers.get('access-control-allow-credentials');
+    if (acao === 'https://evil.com' && acac === 'true') {
+      findings.push({ severity: 'critical', title: 'CORS Misconfiguration', description: 'The server reflects arbitrary origins with credentials allowed.', evidence: { acao, acac } });
+    }
+    return { module: 'cors', status: 'completed', started_at: new Date(start).toISOString(), completed_at: new Date().toISOString(), duration_ms: Date.now() - start, data: { acao, acac }, findings };
+  } catch (err: any) {
+    return { module: 'cors', status: 'failed', started_at: new Date(start).toISOString(), completed_at: new Date().toISOString(), duration_ms: Date.now() - start, data: null, findings, error: { code: 'NETWORK_ERROR', message: err.message } };
+  }
+}
+
+// ─── MODULE 10: EXPOSURE ─────────────────────────────────────
+export async function scanExposure(domain: string): Promise<ModuleResult> {
+  const start = Date.now();
+  const findings: Finding[] = [];
+  const paths = ['/.env', '/.git/config', '/.aws/credentials', '/wp-config.php.bak'];
+  try {
+    const results = await Promise.all(paths.map(async (p) => {
+      try {
+        const res = await safeFetch(`https://${domain}${p}`, { redirect: 'manual' }, 5000);
+        return { path: p, status: res.status, exposed: res.status === 200 };
+      } catch { return { path: p, status: 0, exposed: false }; }
+    }));
+    const exposed = results.filter(r => r.exposed);
+    exposed.forEach(e => {
+      findings.push({ severity: 'critical', title: 'Sensitive File Exposed', description: `The file ${e.path} is publicly accessible.`, evidence: { path: e.path } });
+    });
+    return { module: 'exposure', status: 'completed', started_at: new Date(start).toISOString(), completed_at: new Date().toISOString(), duration_ms: Date.now() - start, data: { checked: paths.length, exposed }, findings };
+  } catch (err: any) {
+    return { module: 'exposure', status: 'failed', started_at: new Date(start).toISOString(), completed_at: new Date().toISOString(), duration_ms: Date.now() - start, data: null, findings, error: { code: 'NETWORK_ERROR', message: err.message } };
+  }
+}
+
+// ─── MODULE 11: WAF ──────────────────────────────────────────
+export async function scanWaf(domain: string): Promise<ModuleResult> {
+  const start = Date.now();
+  const findings: Finding[] = [];
+  try {
+    const res = await safeFetch(`https://${domain}`);
+    const signals: string[] = [];
+    if (res.headers.get('cf-ray')) signals.push('Cloudflare');
+    if (res.headers.get('x-sucuri-id')) signals.push('Sucuri');
+    if ((res.headers.get('server') || '').toLowerCase().includes('awselb')) signals.push('AWS WAF');
+    return { module: 'waf', status: 'completed', started_at: new Date(start).toISOString(), completed_at: new Date().toISOString(), duration_ms: Date.now() - start, data: { detected: signals.length > 0, signals }, findings };
+  } catch (err: any) {
+    return { module: 'waf', status: 'failed', started_at: new Date(start).toISOString(), completed_at: new Date().toISOString(), duration_ms: Date.now() - start, data: null, findings, error: { code: 'NETWORK_ERROR', message: err.message } };
+  }
+}
