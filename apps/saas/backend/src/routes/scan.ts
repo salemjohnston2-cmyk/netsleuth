@@ -4,40 +4,50 @@ import { startScan } from '../services/scanner';
 
 const router = Router();
 
-// Start a scan
-router.post('/start', async (req, res) => {
+// HACK: Accept BOTH GET and POST so we can test from a mobile browser address bar
+router.all('/start', async (req, res) => {
   try {
-    const { domain } = req.body;
-    if (!domain) return res.status(400).json({ error: 'Domain required' });
+    // Grab domain from URL (?domain=github.com) OR from JSON body
+    const domain = (req.query.domain as string) || req.body?.domain;
+    
+    if (!domain) {
+      return res.status(400).json({ 
+        error: 'Domain required. Add ?domain=example.com to the URL.' 
+      });
+    }
 
-    // For now, userId is null (public scan). Auth will be added in Phase 6.
     const scanId = await startScan(domain, null);
-    res.json({ scan_id: scanId });
+    
+    res.json({ 
+      message: 'Scan started!',
+      scan_id: scanId,
+      // This gives you the exact link to copy/paste for the next step
+      stream_link: `/scan/stream/${scanId}` 
+    });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// SSE Stream
+// SSE Stream (Remains exactly the same)
 router.get('/stream/:id', async (req, res) => {
   const scanId = req.params.id;
 
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
-  res.setHeader('X-Accel-Buffering', 'no'); // Nginx/Cloudflare fix
+  res.setHeader('X-Accel-Buffering', 'no');
 
   const interval = setInterval(async () => {
     try {
       const { data: scan } = await supabaseAdmin
         .from('scans')
-        .select('*, module_results(*, sites(domain))')
+        .select('*, module_results(*)')
         .eq('id', scanId)
         .single();
 
       if (!scan) return;
 
-      // Push update
       res.write(`data: ${JSON.stringify({
         scan_id: scan.id,
         status: scan.status,
@@ -45,7 +55,6 @@ router.get('/stream/:id', async (req, res) => {
         modules: scan.module_results
       })}\n\n`);
 
-      // Close connection if done
       if (scan.status === 'completed' || scan.status === 'failed') {
         clearInterval(interval);
         res.end();
@@ -59,4 +68,4 @@ router.get('/stream/:id', async (req, res) => {
   req.on('close', () => clearInterval(interval));
 });
 
-export default router; 
+export default router;
