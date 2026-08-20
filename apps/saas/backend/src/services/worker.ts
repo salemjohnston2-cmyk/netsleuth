@@ -36,21 +36,30 @@ async function processQueue() {
       return;
     }
 
-    // Get domain from scan record
+    // Get domain from scan record (safely)
     const { data: scan } = await supabaseAdmin
       .from('scans')
-      .select('*, sites(domain)')
+      .select('site_id')
       .eq('id', job.scan_id)
       .single();
+
+    if (!scan) throw new Error('Scan record not found');
+
+    const { data: site } = await supabaseAdmin
+      .from('sites')
+      .select('domain')
+      .eq('id', scan.site_id)
+      .single();
+
+    if (!site) throw new Error('Site record not found');
     
-    const domain = scan?.sites?.domain;
-    if (!domain) throw new Error('Domain not found');
+    const domain = site.domain;
 
     console.log(`⚙️ Processing ${job.module_name} for ${domain}`);
     const result = await moduleFn(domain);
 
-    // 4. Save Result & Finish Job
-    await finishJob(job.id, job.scan_id, result.status, result, result.error?.message);
+    // 4. Save Result & Finish Job (Pass null if error message is undefined)
+    await finishJob(job.id, job.scan_id, result.status, result, result.error?.message ?? null);
 
   } catch (err: any) {
     console.error('Worker error:', err);
@@ -109,4 +118,4 @@ export function startWorker() {
   console.log('🤖 Worker started. Polling queue every 2s...');
   // Poll every 2 seconds
   setInterval(processQueue, 2000);
-                    } 
+        }
