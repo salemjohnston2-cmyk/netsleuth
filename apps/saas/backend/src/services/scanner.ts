@@ -5,33 +5,42 @@ export async function startScan(domain: string, userId: string | null) {
   // 1. Normalize domain
   const normalized = domain.replace(/^https?:\/\//, '').replace(/\/.*$/, '').toLowerCase();
 
-  // 2. Find or Create Site
-  let { data: site } = await supabaseAdmin
+  // 2. Find existing site
+  let { data: existingSite } = await supabaseAdmin
     .from('sites')
     .select('id')
     .eq('normalized_domain', normalized)
     .maybeSingle();
 
-  if (!site) {
-    const { data: newSite } = await supabaseAdmin
+  let siteId: string;
+
+  if (existingSite) {
+    siteId = existingSite.id;
+  } else {
+    // Create new site
+    const { data: newSite, error } = await supabaseAdmin
       .from('sites')
       .insert({ domain: normalized, normalized_domain: normalized, user_id: userId })
-      .select()
+      .select('id')
       .single();
-    site = newSite;
+      
+    if (error || !newSite) throw new Error('Failed to create site: ' + error?.message);
+    siteId = newSite.id;
   }
 
   // 3. Create Master Scan Record
-  const { data: scan } = await supabaseAdmin
+  const { data: scan, error: scanError } = await supabaseAdmin
     .from('scans')
     .insert({ 
-      site_id: site.id, 
+      site_id: siteId, 
       user_id: userId,
       status: 'pending',
       total_modules: AVAILABLE_MODULES.length 
     })
-    .select()
+    .select('id')
     .single();
+
+  if (scanError || !scan) throw new Error('Failed to create scan: ' + scanError?.message);
 
   // 4. Queue Modules
   const jobs = AVAILABLE_MODULES.map(module_name => ({
@@ -43,4 +52,4 @@ export async function startScan(domain: string, userId: string | null) {
   await supabaseAdmin.from('scan_queue').insert(jobs);
 
   return scan.id;
-      } 
+}
