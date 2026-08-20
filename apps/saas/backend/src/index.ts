@@ -1,27 +1,14 @@
-import express from 'express';
-import cors from 'cors';
-import dotenv from 'dotenv';
-import healthRoutes from './routes/health';
-import scanRoutes from './routes/scan';
-import { startWorker } from './services/worker';
-import { greet, NETSLEUTH_VERSION } from '@netsleuth/core';
+export const NETSLEUTH_VERSION = '1.0.0';
+export * from './types';
+export { runScan } from './runner';
 
-dotenv.config();
+// Export individual modules for the backend registry
+export { scanDns } from './modules/dns';
+export { scanIp } from './modules/ip';
+export { scanHeaders } from './modules/headers';
+export { scanSsl } from './modules/ssl';
+export { scanTechStack } from './modules/techstack';
 
-const app = express();
-const PORT = process.env.PORT || 3000;
-
-app.use(cors());
-app.use(express.json());
-
-app.use('/health', healthRoutes);
-app.use('/scan', scanRoutes);
-
-app.get('/', (req, res) => {
-  res.json({ message: greet(), version: NETSLEUTH_VERSION });
-});
-
-app.listen(PORT, () => {
-  console.log(`🚀 NetSleuth Backend running`);
-  startWorker(); // Start the background queue processor
-});
+export function greet(): string {
+  return 'NetSleuth Core Engine Initialized';
+}
